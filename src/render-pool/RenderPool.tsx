@@ -38,7 +38,6 @@ export const RenderPool: React.FC<Props> = ({
 
         return;
       }
-
       pendingRenders.current += 1;
 
       resolve();
@@ -58,13 +57,15 @@ export const RenderPool: React.FC<Props> = ({
     pendingRenders.current -= 1;
 
     if (renderQueue.current.length && pendingRenders.current < poolSize) {
-      pendingRenders.current += 1;
-      const next = renderQueue.current.shift();
-      if (next) {
+      let next = renderQueue.current.shift();
+      while (next) {
         const {canceled} = next();
-        if (canceled) {
-          reportRender();
+        if (!canceled) {
+          pendingRenders.current += 1;
+          break;
         }
+
+        next = renderQueue.current.shift();
       }
     }
   });
@@ -106,7 +107,9 @@ export const RenderPoolChild: React.FC = ({
 
   useEffect(() => {
     if (ready) {
-      reportRender();
+      requestAnimationFrame(() => {
+        reportRender();
+      })
     }
   }, [ready, reportRender]);
 
