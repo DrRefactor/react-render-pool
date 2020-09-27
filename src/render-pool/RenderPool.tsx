@@ -5,13 +5,16 @@ type Props = {
   poolSize?: number;
 }
 
+type QueueElement = () => {
+  canceled: boolean;
+}
+
 type RenderPoolContextType = {
-  requestRender: () => Promise<void>;
-  // TODO add 'unmount' message channel
+  requestRender: () => [Promise<void>, () => void];
   reportRender: () => void;
 }
 const RenderPoolContext = React.createContext<RenderPoolContextType>({
-  requestRender: () => Promise.resolve(),
+  requestRender: () => [Promise.resolve(), () => {}],
   reportRender: () => {}
 });
 
@@ -20,12 +23,19 @@ export const RenderPool: React.FC<Props> = ({
   poolSize = 1
 }) => {
   const pendingRenders = useRef(0);
-  const renderQueue = useRef<(() => void)[]>([]);
+  const renderQueue = useRef<QueueElement[]>([]);
 
-  const requestRender = useFunction(async (): Promise<void> => {
-    return new Promise<void>(resolve => {
+  const requestRender = useFunction((): [Promise<void>, () => void] => {
+    let canceled = false;
+    const promise = new Promise<void>(resolve => {
       if (pendingRenders.current >= poolSize) {
-        renderQueue.current.push(resolve);
+        renderQueue.current.push(() => {
+          if (!canceled) {
+            resolve();
+          }
+          return {canceled};
+        });
+
         return;
       }
 
@@ -33,15 +43,32 @@ export const RenderPool: React.FC<Props> = ({
 
       resolve();
     });
+
+    const cancel = () => {
+      canceled = true;
+    }
+
+    return [
+      promise,
+      cancel
+    ];
   });
+
   const reportRender = useFunction(() => {
     pendingRenders.current -= 1;
 
     if (renderQueue.current.length && pendingRenders.current < poolSize) {
       pendingRenders.current += 1;
-      renderQueue.current.shift()?.();
+      const next = renderQueue.current.shift();
+      if (next) {
+        const {canceled} = next();
+        if (canceled) {
+          reportRender();
+        }
+      }
     }
   });
+
   const contextValue = useMemo(() => ({
     requestRender,
     reportRender
@@ -59,11 +86,17 @@ export const RenderPoolChild: React.FC = ({
 }) => {
   const [ready, setReady] = useState(false);
   const {reportRender, requestRender} = useContext(RenderPoolContext);
+  const unsubscribeRef = useRef(() => {});
+
+  useEffect(() => () => {
+    unsubscribeRef.current();
+  }, []);
 
   useEffect(() => {
     async function asyncEffect() {
-      // TODO handle unmount
-      await requestRender();
+      const [awaitRenderTurn, unsubscribe] = requestRender();
+      unsubscribeRef.current = unsubscribe;
+      await awaitRenderTurn;
 
       setReady(true);
     }
