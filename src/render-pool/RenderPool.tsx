@@ -23,8 +23,8 @@ export const RenderPool: React.FC<Props> = ({
   const renderQueue = useRef<(() => void)[]>([]);
 
   const requestRender = useFunction(async (): Promise<void> => {
-    return new Promise(resolve => {
-      if (pendingRenders.current === poolSize) {
+    return new Promise<void>(resolve => {
+      if (pendingRenders.current >= poolSize) {
         renderQueue.current.push(resolve);
         return;
       }
@@ -32,12 +32,12 @@ export const RenderPool: React.FC<Props> = ({
       pendingRenders.current += 1;
 
       resolve();
-    })
+    });
   });
   const reportRender = useFunction(() => {
     pendingRenders.current -= 1;
 
-    if (renderQueue.current.length) {
+    if (renderQueue.current.length && pendingRenders.current < poolSize) {
       pendingRenders.current += 1;
       renderQueue.current.shift()?.();
     }
