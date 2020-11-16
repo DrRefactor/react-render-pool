@@ -1,13 +1,13 @@
 import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useFunction } from '../hooks/useFunction';
+import { delay, noop } from '../utils';
 
 type Props = {
   poolSize?: number;
+  renderInterval?: number;
 }
 
-type QueueElement = () => {
-  canceled: boolean;
-}
+type QueueElement = (() => void) & {canceled?: boolean}
 
 type RenderPoolContextType = {
   requestRender: () => [Promise<void>, () => void];
@@ -20,31 +20,36 @@ const RenderPoolContext = React.createContext<RenderPoolContextType>({
 
 export const RenderPool: React.FC<Props> = ({
   children,
-  poolSize = 1
+  poolSize = 1,
+  renderInterval = 100
 }) => {
   const pendingRenders = useRef(0);
   const renderQueue = useRef<QueueElement[]>([]);
 
   const requestRender = useFunction((): [Promise<void>, () => void] => {
-    let canceled = false;
-    const promise = new Promise<void>(resolve => {
-      if (pendingRenders.current >= poolSize) {
-        renderQueue.current.push(() => {
-          if (!canceled) {
-            resolve();
-          }
-          return {canceled};
-        });
+    let resolver = noop;
+    let rejecter = noop;
+    let element = noop as QueueElement;
 
-        return;
-      }
+    const promise = new Promise<void>((resolve, reject) => {
+      resolver = resolve;
+      rejecter = reject;
+    });
+    if (pendingRenders.current >= poolSize) {
+      element = () => {
+        if (!element.canceled) {
+          resolver();
+        }
+      };
+      renderQueue.current.push(element);
+    } else {
       pendingRenders.current += 1;
 
-      resolve();
-    });
+      resolver();
+    }
 
     const cancel = () => {
-      canceled = true;
+      element.canceled = true;
     }
 
     return [
@@ -53,15 +58,21 @@ export const RenderPool: React.FC<Props> = ({
     ];
   });
 
-  const reportRender = useFunction(() => {
+  const reportRender = useFunction(async () => {
     pendingRenders.current -= 1;
 
     if (renderQueue.current.length && pendingRenders.current < poolSize) {
       let next = renderQueue.current.shift();
       while (next) {
-        const {canceled} = next();
-        if (!canceled) {
-          pendingRenders.current += 1;
+        if (next.canceled) {
+          continue;
+        }
+        await delay(renderInterval);
+        next();
+
+        pendingRenders.current += 1;
+        
+        if (true) {
           break;
         }
 
