@@ -1,10 +1,10 @@
 import React from "react"
-import { RenderPool, RenderPoolChild } from "../render-pool/RenderPool"
+import { RenderBatcher, RenderBatcherChild } from "../render-batcher/RenderBatcher"
 import { range } from "../utils"
 
 export const MassiveList: React.FC = () => {
   return (
-    <RenderPool poolSize={10} renderInterval={500}>
+    <RenderBatcher batchSize={10} renderInterval={500}>
       <div
         style={{
           width: '100%',
@@ -18,7 +18,7 @@ export const MassiveList: React.FC = () => {
         }}
       >
         {range(1500).map(i => (
-          <RenderPoolChild key={i}>
+          <RenderBatcherChild key={i}>
             <div
               style={{
                 borderWidth: 1,
@@ -37,9 +37,9 @@ export const MassiveList: React.FC = () => {
                 style={{fontSize: 8, color: 'white'}}
               >{i}</div>
             </div>
-          </RenderPoolChild>
+          </RenderBatcherChild>
         ))}
       </div>
-    </RenderPool>
+    </RenderBatcher>
   )
 }

@@ -5,26 +5,26 @@ import ReactDOM from "react-dom"
 import { useEffectOnce } from '../hooks/useEffectOnce';
 
 type Props = {
-  poolSize?: number;
+  batchSize?: number;
   renderInterval?: number;
 }
 
 type QueueElement = (() => void) & {canceled?: boolean}
 
-type RenderPoolContextType = {
+type RenderBatcherContextType = {
   requestRender: (callback?: () => void) => {
     cancel: () => void;
   };
   reportRender: () => void;
 }
-const RenderPoolContext = React.createContext<RenderPoolContextType>({
+const RenderBatcherContext = React.createContext<RenderBatcherContextType>({
   requestRender: () => ({cancel: noop}),
   reportRender: () => {}
 });
 
-export const RenderPool: React.FC<Props> = ({
+export const RenderBatcher: React.FC<Props> = ({
   children,
-  poolSize = 1,
+  batchSize = 1,
   renderInterval = 100
 }) => {
   const pendingRenders = useRef(0);
@@ -69,7 +69,7 @@ export const RenderPool: React.FC<Props> = ({
       onBatchDone.current = resolve;
 
       ReactDOM.unstable_batchedUpdates(() => {
-        while (renderQueue.current.length && pendingRenders.current < poolSize) {
+        while (renderQueue.current.length && pendingRenders.current < batchSize) {
           const next = renderQueue.current.shift();
           if (!next || next.canceled) {
             continue;
@@ -109,17 +109,17 @@ export const RenderPool: React.FC<Props> = ({
   }), [reportRender, requestRender]);
 
   return (
-    <RenderPoolContext.Provider value={contextValue}>
+    <RenderBatcherContext.Provider value={contextValue}>
       {children}
-    </RenderPoolContext.Provider>
+    </RenderBatcherContext.Provider>
   )
 }
 
-export const RenderPoolChild: React.FC = ({
+export const RenderBatcherChild: React.FC = ({
   children
 }) => {
   const [ready, setReady] = useState(false);
-  const {reportRender, requestRender} = useContext(RenderPoolContext);
+  const {reportRender, requestRender} = useContext(RenderBatcherContext);
   const cancelRef = useRef(noop);
 
   useEffect(() => () => {

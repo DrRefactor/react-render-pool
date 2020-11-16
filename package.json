@@ -1,5 +1,5 @@
 {
-  "name": "react-progressive-renderer",
+  "name": "react-render-batcher",
   "version": "0.1.0",
   "private": true,
   "dependencies": {
