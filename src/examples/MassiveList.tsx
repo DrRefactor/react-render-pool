@@ -4,7 +4,7 @@ import { range } from "../utils"
 
 export const MassiveList: React.FC = () => {
   return (
-    <RenderPool>
+    <RenderPool poolSize={10} renderInterval={500}>
       <div
         style={{
           width: '100%',
@@ -17,7 +17,7 @@ export const MassiveList: React.FC = () => {
           alignContent: 'flex-start'
         }}
       >
-        {range(15000).map(i => (
+        {range(1500).map(i => (
           <RenderPoolChild key={i}>
             <div
               style={{
