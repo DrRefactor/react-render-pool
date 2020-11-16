@@ -7,3 +7,8 @@ export function range(length: number) {
 export function delay(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
+
+export function awaitAnimationFrame() {
+  return new Promise(resolve => requestAnimationFrame(resolve));
+}
+
