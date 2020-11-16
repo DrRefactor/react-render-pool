@@ -1,6 +1,8 @@
 import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useFunction } from '../hooks/useFunction';
-import { delay, noop } from '../utils';
+import { createVoidPromise, noop } from '../utils';
+import ReactDOM from "react-dom"
+import { useEffectOnce } from '../hooks/useEffectOnce';
 
 type Props = {
   poolSize?: number;
@@ -10,11 +12,13 @@ type Props = {
 type QueueElement = (() => void) & {canceled?: boolean}
 
 type RenderPoolContextType = {
-  requestRender: () => [Promise<void>, () => void];
+  requestRender: (callback?: () => void) => {
+    cancel: () => void;
+  };
   reportRender: () => void;
 }
 const RenderPoolContext = React.createContext<RenderPoolContextType>({
-  requestRender: () => [Promise.resolve(), () => {}],
+  requestRender: () => ({cancel: noop}),
   reportRender: () => {}
 });
 
@@ -26,58 +30,76 @@ export const RenderPool: React.FC<Props> = ({
   const pendingRenders = useRef(0);
   const renderQueue = useRef<QueueElement[]>([]);
 
-  const requestRender = useFunction((): [Promise<void>, () => void] => {
-    let resolver = noop;
-    let rejecter = noop;
-    let element = noop as QueueElement;
+  const renderTimerId = useRef<number>(0);
+  const onBatchDone = useRef<() => void>();
 
-    const promise = new Promise<void>((resolve, reject) => {
-      resolver = resolve;
-      rejecter = reject;
-    });
-    if (pendingRenders.current >= poolSize) {
-      element = () => {
-        if (!element.canceled) {
-          resolver();
-        }
-      };
-      renderQueue.current.push(element);
-    } else {
-      pendingRenders.current += 1;
-
-      resolver();
-    }
+  const requestRender = useFunction((callback?: () => void): {cancel: () => void} => {
+    const element = (() => {
+      if (!element.canceled) {
+        callback?.();
+      }
+    }) as QueueElement;
+    renderQueue.current.push(element);
 
     const cancel = () => {
       element.canceled = true;
     }
 
-    return [
-      promise,
-      cancel
-    ];
+    return {cancel};
   });
 
   const reportRender = useFunction(async () => {
     pendingRenders.current -= 1;
 
-    if (renderQueue.current.length && pendingRenders.current < poolSize) {
-      let next = renderQueue.current.shift();
-      while (next) {
-        if (next.canceled) {
-          continue;
-        }
-        await delay(renderInterval);
-        next();
+    if (pendingRenders.current === 0) {
+      onBatchDone.current?.();
+    }
+  });
 
-        pendingRenders.current += 1;
-        
-        if (true) {
-          break;
-        }
+  const renderBatchIfIdle = useFunction(async () => {
+    if (renderQueue.current.length === 0) {
+      return;
+    }
 
-        next = renderQueue.current.shift();
+    if (pendingRenders.current === 0) {
+      const {
+        promise,
+        resolve
+      } = createVoidPromise();
+      onBatchDone.current = resolve;
+
+      ReactDOM.unstable_batchedUpdates(() => {
+        while (renderQueue.current.length && pendingRenders.current < poolSize) {
+          const next = renderQueue.current.shift();
+          if (!next || next.canceled) {
+            continue;
+          }
+          next();
+  
+          pendingRenders.current += 1;
+        }
+      })
+
+      await promise;
+    }
+  });
+
+  useEffectOnce(() => {
+    let canceled = false;
+
+    const tick = async () => {
+      await renderBatchIfIdle();
+      if (canceled) {
+        return;
       }
+      renderTimerId.current = window.setTimeout(tick, renderInterval);
+    }
+    renderTimerId.current = window.setTimeout(tick, renderInterval);
+
+    return () => {
+      clearTimeout(renderTimerId.current);
+      renderTimerId.current = 0
+      canceled = true;
     }
   });
 
@@ -98,19 +120,16 @@ export const RenderPoolChild: React.FC = ({
 }) => {
   const [ready, setReady] = useState(false);
   const {reportRender, requestRender} = useContext(RenderPoolContext);
-  const unsubscribeRef = useRef(() => {});
+  const cancelRef = useRef(noop);
 
   useEffect(() => () => {
-    unsubscribeRef.current();
+    cancelRef.current();
   }, []);
 
   useEffect(() => {
     async function asyncEffect() {
-      const [awaitRenderTurn, unsubscribe] = requestRender();
-      unsubscribeRef.current = unsubscribe;
-      await awaitRenderTurn;
-
-      setReady(true);
+      const {cancel} = requestRender(() => setReady(true));
+      cancelRef.current = cancel;
     }
 
     asyncEffect();
@@ -118,9 +137,7 @@ export const RenderPoolChild: React.FC = ({
 
   useEffect(() => {
     if (ready) {
-      requestAnimationFrame(() => {
-        reportRender();
-      })
+      reportRender();
     }
   }, [ready, reportRender]);
 
